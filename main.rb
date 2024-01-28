@@ -1,17 +1,51 @@
 # frozen_string_literal: true
+require 'bundler/setup'
+
+require 'stringio'
 require 'capybara/dsl'
-require 'loofah';
+require 'loofah'
+require 'gepub'
 
 class MagicStoryCompiler
   include Capybara::DSL
 
   Capybara.default_driver = :selenium_chrome
+  
+  def make_book(set_name:)
+    require 'byebug'
+    articles = get_all_set_story_articles(set_name: set_name)
 
-  def initialize()
-    visit("https://magic.wizards.com/en/story")
+    book = GEPUB::Book.new
+
+    book.add_title("Magic: The Gathering - #{set_name}")
+
+    book.ordered do
+      articles.each do |article|
+        builder = Nokogiri::HTML::Builder.new do |doc|
+          doc.html do
+            doc.head do
+              doc.title(article[:title])
+            end
+            doc.body do
+              doc.h1(article[:title])
+              doc << article[:text]
+            end
+          end
+        end
+        # use nokogiri::builder and download images
+        book.add_item("text/#{article[:title].gsub(':', '').gsub(' ', '_').downcase}.xhtml").
+             add_content(StringIO.new(builder.to_html)).
+             toc_text(article[:title]).
+             landmark(type: 'bodymatter', title: article[:title])
+      end
+    end
+
+    book.generate_epub(File.join(File.dirname(__FILE__), 'example.epub'))
   end
 
   def get_all_set_story_articles(set_name:)
+    visit("https://magic.wizards.com/en/story")
+
     links = get_article_links(set_name: set_name)
     links.map do |link|
       get_story_article(story_hash: link)
@@ -21,6 +55,7 @@ class MagicStoryCompiler
   def get_story_article(story_hash:)
     visit(story_hash[:url])
 
+    title = story_hash[:title].split("|").last.strip
     main_article = find("article")
     header = main_article.find("header")
     body = main_article.find("div.article-body")
@@ -46,7 +81,7 @@ class MagicStoryCompiler
 
     clean_body_text = Loofah.html5_fragment(body_text).scrub!(:prune).scrub!(empty_scrubber).to_s
 
-    story_hash.merge(author: author, publish_date: publish_date, text: clean_body_text)
+    story_hash.merge(author: author, publish_date: publish_date, text: clean_body_text, title: title)
   end
 
   def get_article_links(set_name:)
