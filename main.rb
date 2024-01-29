@@ -2,6 +2,7 @@
 require 'bundler/setup'
 require 'stringio'
 require 'optparse'
+require 'open-uri'
 
 require 'byebug'
 require 'capybara/dsl'
@@ -19,9 +20,22 @@ class MagicStoryCompiler
     book = GEPUB::Book.new
 
     book.add_title("Magic: The Gathering - #{set_name}")
+    articles.map { |a| a[:author ]}.uniq.each { |author| book.add_creator(author) }
+
+    images = {}
 
     book.ordered do
       articles.each do |article|
+        article_body = Nokogiri::HTML.fragment(article[:text])
+        image_tags = article_body.css("img")
+
+        image_tags.each do |img|
+          f = URI.open(img["src"])
+          path = "../image/#{img['src'].split('/').last}"
+          images[path] = f
+          img["src"] = path
+        end
+
         builder = Nokogiri::HTML::Builder.new do |doc|
           doc.html do
             doc.head do
@@ -29,7 +43,7 @@ class MagicStoryCompiler
             end
             doc.body do
               doc.h1(article[:title])
-              doc << article[:text]
+              doc << article_body
             end
           end
         end
@@ -39,6 +53,9 @@ class MagicStoryCompiler
              toc_text(article[:title]).
              landmark(type: 'bodymatter', title: article[:title])
       end
+    end
+    images.each do |path, f|
+      book.add_item(path, content: f)
     end
 
     book.generate_epub(output_file)
@@ -171,9 +188,9 @@ end
 
 sets = if options.keys.include?(:"set-name")
          [options[:"set-name"]]
-       else
+       elsif options.keys.include?(:file)
         File.readlines(options[:file], chomp: true)
-       end
+       end || []
 
 compiler = MagicStoryCompiler.new
 
