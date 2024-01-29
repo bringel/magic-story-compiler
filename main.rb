@@ -1,7 +1,9 @@
 # frozen_string_literal: true
 require 'bundler/setup'
-
 require 'stringio'
+require 'optparse'
+
+require 'byebug'
 require 'capybara/dsl'
 require 'loofah'
 require 'gepub'
@@ -11,8 +13,7 @@ class MagicStoryCompiler
 
   Capybara.default_driver = :selenium_chrome
   
-  def make_book(set_name:)
-    require 'byebug'
+  def make_book(set_name:, output_file:)
     articles = get_all_set_story_articles(set_name: set_name)
 
     book = GEPUB::Book.new
@@ -40,7 +41,7 @@ class MagicStoryCompiler
       end
     end
 
-    book.generate_epub(File.join(File.dirname(__FILE__), 'example.epub'))
+    book.generate_epub(output_file)
   end
 
   def get_all_set_story_articles(set_name:)
@@ -151,4 +152,33 @@ class MagicStoryCompiler
   def find_story_archive
     find("section#story-archive")
   end
+end
+
+parser = OptionParser.new
+parser.on('-f', '--file [FILENAME]', 'A file containing all the sets to create books for, one set per line')
+parser.on('-n', '--set-name [SETNAME]', 'Set name to create a book for')
+parser.on('-o', '--output-folder [OUTPUT]', 'The folder to output the finished book to. Defaults to the current folder')
+
+options = {
+  :"output-folder" => "./"
+}
+
+parser.parse!(into: options)
+
+if options.keys.include?(:file) && options.keys.include?(:"set-name")
+  fail "Supply either a file of set names, or a single set, but not both"
+end
+
+sets = if options.keys.include?(:"set-name")
+         [options[:"set-name"]]
+       else
+        File.readlines(options[:file], chomp: true)
+       end
+
+compiler = MagicStoryCompiler.new
+
+sets.each do |set_name|
+  book_name = "Magic: The Gathering - #{set_name}.epub"
+  output_folder = File.expand_path(options[:"output-folder"], File.dirname(__FILE__))
+  compiler.make_book(set_name: set_name, output_file: File.join(output_folder, book_name))
 end
