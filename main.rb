@@ -4,6 +4,7 @@ require 'stringio'
 require 'optparse'
 require 'open-uri'
 require 'yaml'
+require 'fileutils'
 
 require 'byebug'
 require 'capybara/dsl'
@@ -29,9 +30,27 @@ class MagicStoryCompiler
     book.add_title("Magic: The Gathering - #{set_name}")
     articles.map { |a| a[:author ]}.uniq.each { |author| book.add_creator(author) }
 
+
     images = {}
 
     book.ordered do
+    copyright_page = Nokogiri::HTML::Builder.with(Nokogiri::HTML5::Document.new) do |doc|
+      doc.html do
+        doc.head do
+          doc.title("Copyright")
+        end
+        doc.body do
+          doc.div do
+            doc.text("This book is unofficial Fan Content permitted under the Fan Content Policy. Not approved/endorsed by Wizards.")
+            doc.br
+            doc.text("All text, images, and other portions of the materials used are property of Wizards of the Coast.")
+            doc.br
+            doc.text("©Wizards of the Coast LLC.")
+          end
+        end
+      end
+    end.to_html
+    book.add_item('text/copyright.html', content: StringIO.new(copyright_page))
       articles.each do |article|
         article_body = Nokogiri::HTML.fragment(article[:text])
         image_tags = article_body.css("img")
@@ -251,5 +270,6 @@ sets.each do |set|
 
   book_name = "Magic: The Gathering - #{set_name}.epub"
   output_folder = File.expand_path(options[:"output-folder"], File.dirname(__FILE__))
+  FileUtils.mkdir_p(output_folder)
   compiler.make_book(set: set, output_file: File.join(output_folder, book_name))
 end
