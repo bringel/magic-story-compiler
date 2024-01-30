@@ -22,6 +22,7 @@ GEM
       crass (~> 1.0.2)
       nokogiri (>= 1.12.0)
     matrix (0.4.2)
+    mini_magick (4.12.0)
     mini_mime (1.1.5)
     nokogiri (1.16.0-x86_64-darwin)
       racc (~> 1.4)
@@ -50,6 +51,7 @@ DEPENDENCIES
   capybara (~> 3.39)
   gepub (~> 1.0)
   loofah (~> 2.22)
+  mini_magick (~> 4.12)
   nokogiri (~> 1.16)
   selenium-webdriver (~> 4.17)
 

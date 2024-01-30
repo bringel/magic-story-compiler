@@ -15,3 +15,5 @@ gem "loofah", "~> 2.22"
 gem "gepub", "~> 1.0"
 
 gem "byebug", "~> 11.1"
+
+gem "mini_magick", "~> 4.12"
