@@ -3,6 +3,7 @@ require 'bundler/setup'
 require 'stringio'
 require 'optparse'
 require 'open-uri'
+require 'yaml'
 
 require 'byebug'
 require 'capybara/dsl'
@@ -14,7 +15,12 @@ class MagicStoryCompiler
 
   Capybara.default_driver = :selenium_chrome
   
-  def make_book(set_name:, output_file:)
+  def make_book(set:, output_file:)
+    if set.class == String
+      set_name = set
+    else
+      set_name = set["name"]
+    end
     articles = get_all_set_story_articles(set_name: set_name)
 
     book = GEPUB::Book.new
@@ -31,9 +37,9 @@ class MagicStoryCompiler
 
         image_tags.each do |img|
           f = URI.open(img["src"])
-          path = "../image/#{img['src'].split('/').last}"
+          path = "image/#{img['src'].split('/').last}"
           images[path] = f
-          img["src"] = path
+          img["src"] = "../#{path}"
         end
 
         builder = Nokogiri::HTML::Builder.with(Nokogiri::HTML5::Document.new) do |doc|
@@ -172,7 +178,7 @@ class MagicStoryCompiler
 end
 
 parser = OptionParser.new
-parser.on('-f', '--file [FILENAME]', 'A file containing all the sets to create books for, one set per line')
+parser.on('-f', '--file [FILENAME]', 'A YAML file containing all the sets to create books for')
 parser.on('-n', '--set-name [SETNAME]', 'Set name to create a book for')
 parser.on('-o', '--output-folder [OUTPUT]', 'The folder to output the finished book to. Defaults to the current folder')
 
@@ -189,13 +195,21 @@ end
 sets = if options.keys.include?(:"set-name")
          [options[:"set-name"]]
        elsif options.keys.include?(:file)
-        File.readlines(options[:file], chomp: true)
+        YAML.load(File.read(options[:file]))
        end || []
 
 compiler = MagicStoryCompiler.new
 
-sets.each do |set_name|
+# going to use this to create a cover and then add another image on top 
+#magick -background black -fill white -size 1600x2560 -pointsize 64 -gravity north caption:"Magic: The Gathering - Wilds of Eldraine" -splice 0x200 -gravity south -chop 0x200  cover.jpeg
+sets.each do |set|
+  set_name = if set.class == String
+               set
+             else
+               set["name"]
+             end
+
   book_name = "Magic: The Gathering - #{set_name}.epub"
   output_folder = File.expand_path(options[:"output-folder"], File.dirname(__FILE__))
-  compiler.make_book(set_name: set_name, output_file: File.join(output_folder, book_name))
+  compiler.make_book(set: set, output_file: File.join(output_folder, book_name))
 end
