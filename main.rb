@@ -28,6 +28,8 @@ class MagicStoryCompiler
     book = GEPUB::Book.new
 
     book.add_title("Magic: The Gathering - #{set_name}")
+    book.add_item("assets/base.css", content: File.open(File.expand_path("./ebook-css/css/base.css", File.dirname(__FILE__))))
+    book.add_item("assets/overrides.css", content: File.open(File.expand_path("./overrides.css", File.dirname(__FILE__))))
     articles.map { |a| a[:author ]}.uniq.each { |author| book.add_creator(author) }
 
 
@@ -38,6 +40,8 @@ class MagicStoryCompiler
       doc.html do
         doc.head do
           doc.title("Copyright")
+          doc.link(rel: "stylesheet", href: "../assets/base.css")
+          doc.link(rel: "stylesheet", href: "../assets/overrides.css")
         end
         doc.body do
           doc.div do
@@ -66,8 +70,10 @@ class MagicStoryCompiler
           doc.html do
             doc.head do
               doc.title(article[:title])
+              doc.link(rel: "stylesheet", href: "../assets/base.css")
+              doc.link(rel: "stylesheet", href: "../assets/overrides.css")
             end
-            doc.body do
+            doc.body(class: "story") do
               doc.h1(article[:title])
               doc << article_body
             end

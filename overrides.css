@@ -1,0 +1,9 @@
+body.story figure {
+  background-color: transparent;
+  border: none
+}
+
+body.story h1 {
+  text-align: center;
+}
+
