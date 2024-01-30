@@ -68,37 +68,43 @@ class MagicStoryCompiler
 # going to use this to create a cover and then add another image on top 
 #magick -background black -fill white -size 1600x2560 -pointsize 64 -gravity north caption:"Magic: The Gathering - Wilds of Eldraine" 
 #-splice 0x200 -gravity south -chop 0x200  cover.jpeg
-    tf = Tempfile.new(['cover', '.jpeg'])
-    MiniMagick::Tool::Magick.new do |magick|
-      magick.background('black')
-      magick.fill('white')
-      magick.size('1600x2560')
-      magick.pointsize('64')
-      magick.gravity('north')
-      magick << "caption:Magic: The Gathering\n#{set_name}"
-      # magick.caption("Magic: The Gathering #{set_name}")
-      magick.splice('0x200')
-      magick.gravity('south')
-      magick.chop('0x200')
-      magick << tf.path
-    end
+    # tf = Tempfile.new(['cover', '.jpeg'])
+    # MiniMagick::Tool::Magick.new do |magick|
+    #   magick.background('black')
+    #   magick.fill('white')
+    #   magick.size('1600x2560')
+    #   magick.pointsize('64')
+    #   magick.gravity('north')
+    #   magick << "caption:Magic: The Gathering\n#{set_name}"
+    #   # magick.caption("Magic: The Gathering #{set_name}")
+    #   magick.splice('0x200')
+    #   magick.gravity('south')
+    #   magick.chop('0x200')
+    #   magick << tf.path
+    # end
 
-    cover = MiniMagick::Image.open(tf.path)
-    set_image = MiniMagick::Image.open(set["image_url"]) 
-    set_image.resize('1600x')
+    # cover = MiniMagick::Image.open(tf.path)
+    # set_image = MiniMagick::Image.open(set["image_url"]) 
+    # set_image.resize('1600x')
+    # set_image.format('.jpeg')
+
+    # result = cover.composite(set_image) do |c|
+    #   c.compose("Over")
+    #   c.gravity("southeast")
+    #   c.geometry("+0+200")
+    #   c.colorspace('sRGB')
+    # end
+
+    # output_tf = Tempfile.new(['cover_final', '.jpeg'])
+    # result.write(output_tf.path)
+
+    # book.add_item('image/cover.jpeg', content: output_tf).cover_image
+    set_image = MiniMagick::Image.open(set["image_url"])
+    set_image.resize('1600x2560')
     set_image.format('.jpeg')
-
-    result = cover.composite(set_image) do |c|
-      c.compose("Over")
-      c.gravity("southeast")
-      c.geometry("+0+200")
-      c.colorspace('sRGB')
-    end
-
-    output_tf = Tempfile.new(['cover_final', '.jpeg'])
-    result.write(output_tf.path)
-
-    book.add_item('image/cover.jpeg', content: output_tf).cover_image
+    tf = Tempfile.new
+    set_image.write(tf.path)
+    book.add_item('image/cover.jpeg', content: tf).cover_image
 
     book.generate_epub(output_file)
   end
