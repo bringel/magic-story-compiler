@@ -36,7 +36,7 @@ class MagicStoryCompiler
           img["src"] = path
         end
 
-        builder = Nokogiri::HTML::Builder.new do |doc|
+        builder = Nokogiri::HTML::Builder.with(Nokogiri::HTML5::Document.new) do |doc|
           doc.html do
             doc.head do
               doc.title(article[:title])
@@ -47,8 +47,8 @@ class MagicStoryCompiler
             end
           end
         end
-        # use nokogiri::builder and download images
-        book.add_item("text/#{article[:title].gsub(':', '').gsub(' ', '_').downcase}.xhtml").
+
+        book.add_item("text/#{article[:title].gsub(':', '').gsub(' ', '_').downcase}.html").
              add_content(StringIO.new(builder.to_html)).
              toc_text(article[:title]).
              landmark(type: 'bodymatter', title: article[:title])
