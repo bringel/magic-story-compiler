@@ -18,16 +18,11 @@ class MagicStoryCompiler
   Capybara.default_driver = :selenium_chrome
   
   def make_book(set:, output_file:)
-    if set.class == String
-      set_name = set
-    else
-      set_name = set["name"]
-    end
-    articles = get_all_set_story_articles(set_name: set_name)
+    articles = get_all_set_story_articles(set_name: set["name"])
 
     book = GEPUB::Book.new
 
-    book.add_title("Magic: The Gathering - #{set_name}")
+    book.add_title("Magic: The Gathering - #{set["name"]}")
     book.add_item("assets/base.css", content: File.open(File.expand_path("./ebook-css/css/base.css", File.dirname(__FILE__))))
     book.add_item("assets/overrides.css", content: File.open(File.expand_path("./overrides.css", File.dirname(__FILE__))))
     articles.map { |a| a[:author ]}.uniq.each { |author| book.add_creator(author) }
@@ -248,6 +243,7 @@ parser = OptionParser.new
 parser.on('-f', '--file [FILENAME]', 'A YAML file containing all the sets to create books for')
 parser.on('-n', '--set-name [SETNAME]', 'Set name to create a book for')
 parser.on('-o', '--output-folder [OUTPUT]', 'The folder to output the finished book to. Defaults to the current folder')
+parser.on('-i', '--cover-image-url [IMAGE]', 'A cover image to add to the book')
 
 options = {
   :"output-folder" => "./"
@@ -255,12 +251,19 @@ options = {
 
 parser.parse!(into: options)
 
-if options.keys.include?(:file) && options.keys.include?(:"set-name")
-  fail "Supply either a file of set names, or a single set, but not both"
+non_file_required_options = %i["set-name" "cover-image-url"]
+
+# check to see if --file was passed, then you shouldn't have --set-name and --cover-image-url. intersecting the arrays should show both options still, if any are nissing then fail
+if options.keys.include?(:file)
+  if (non_file_required_options - options.keys).length < 2
+    fail "Supply either a file of set names, or a name and image arguments for a single set, but not both"
+  end
+elsif (non_file_required_options - options.keys).empty?
+  fail "Must supply both a set name and a cover image url"
 end
 
 sets = if options.keys.include?(:"set-name")
-         [options[:"set-name"]]
+         [{"name" => options[:"set-name"], "image_url" => options[:"cover-image-url"]}]
        elsif options.keys.include?(:file)
         YAML.load(File.read(options[:file]))
        end || []
@@ -268,13 +271,7 @@ sets = if options.keys.include?(:"set-name")
 compiler = MagicStoryCompiler.new
 
 sets.each do |set|
-  set_name = if set.class == String
-               set
-             else
-               set["name"]
-             end
-
-  book_name = "Magic: The Gathering - #{set_name}.epub"
+  book_name = "Magic: The Gathering - #{set["name"]}.epub"
   output_folder = File.expand_path(options[:"output-folder"], File.dirname(__FILE__))
   FileUtils.mkdir_p(output_folder)
   compiler.make_book(set: set, output_file: File.join(output_folder, book_name))
