@@ -148,7 +148,7 @@ class MagicStoryCompiler
 
     publish_date = header.find("time").text
 
-    author = header.all("a").find { |e| e.text != 'Magic Story' }.text
+    author = header.all("a").find { |e| e.text != 'Magic Story' }&.text || ""
 
     body_text = body['innerHTML']
 
@@ -171,9 +171,12 @@ class MagicStoryCompiler
   end
 
   def get_article_links(set_name:)
-    find_set_element(set_name: set_name).click
+    set_element = find_set_element(set_name: set_name)
+    scroll_to(set_element)
+    set_element.click
 
     find_story_switch_buttons.flat_map do |b|
+      scroll_to(b)
       b.click
       find_article_elements.map do |el|
         title = el.find('h3').text(:all)
@@ -188,14 +191,17 @@ class MagicStoryCompiler
   end
 
   def find_story_switch_buttons()
-    main_story_button = find_story_archive.find_button("Magic Story")
+    main_story_button = find_story_archive.find_button("Magic Story", disabled: :all, visible: false)
     begin
-      side_story_button = find_story_archive.find_button("Side Stories")
+      side_story_button = find_story_archive.find_button("Side Stories", disabled: :all, visible: false)
+      # only in Neon Dynasty i think
+      saga_story_button = find_story_archive.find_button("Saga Stories", disabled: :all, visible: false)
     rescue Capybara::ElementNotFound
     end
     [
       main_story_button,
-      side_story_button
+      side_story_button,
+      saga_story_button
     ].compact
   end
   
@@ -207,10 +213,10 @@ class MagicStoryCompiler
     sets = find_set_slider
     years = find_year_slider
 
-    years.all("span.swiper-slide").each do |y|
+    years.all("span.swiper-slide", visible: false).each do |y|
       y.click
       begin
-        set = sets.find("div.swiper-slide", text: set_name) 
+        set = sets.find("div.swiper-slide", text: set_name, visible: false) 
       rescue Capybara::ElementNotFound
         next
       end
@@ -244,9 +250,11 @@ parser.on('-f', '--file [FILENAME]', 'A YAML file containing all the sets to cre
 parser.on('-n', '--set-name [SETNAME]', 'Set name to create a book for')
 parser.on('-o', '--output-folder [OUTPUT]', 'The folder to output the finished book to. Defaults to the current folder')
 parser.on('-i', '--cover-image-url [IMAGE]', 'A cover image to add to the book')
+parser.on('--formats [FORMATS]', 'Formats to output books in, defaults to epub,pdf,mobi,kfx. Input should be comma separated formats. Available formats are epub, pdf, mobi, kfx, azw3')
 
 options = {
-  :"output-folder" => "./"
+  :"output-folder" => "./",
+  formats: "epub,pdf,mobi,kfx"
 }
 
 parser.parse!(into: options)
@@ -268,11 +276,30 @@ sets = if options.keys.include?(:"set-name")
         YAML.load(File.read(options[:file]))
        end || []
 
+formats = options[:formats].split(',')
 compiler = MagicStoryCompiler.new
 
 sets.each do |set|
+  pp set
   book_name = "Magic: The Gathering - #{set["name"]}.epub"
-  output_folder = File.expand_path(options[:"output-folder"], File.dirname(__FILE__))
+  output_folder = File.expand_path(options[:"output-folder"])
   FileUtils.mkdir_p(output_folder)
-  compiler.make_book(set: set, output_file: File.join(output_folder, book_name))
+  
+  output_epub_file = File.join(output_folder, book_name)
+  compiler.make_book(set: set, output_file: output_epub_file)
+
+  formats.each do |format|
+    unless format == 'epub'
+      format_folder = File.join(output_folder, format)
+      FileUtils.mkdir_p(format_folder)
+      output_file_name = "#{File.basename(output_epub_file, ".*")}.#{format}"
+      Kernel.system("/Applications/calibre.app/Contents/MacOS/ebook-convert \"#{output_epub_file}\" \"#{File.join(format_folder, output_file_name)}\" #{'--output-profile tablet' if format == 'mobi'}")
+    end
+  end
+
+  if formats.include?("epub")
+    epub_folder = File.join(output_folder, "epub")
+    FileUtils.mkdir_p(epub_folder)
+    FileUtils.mv(output_epub_file, File.join(epub_folder, File.basename(output_epub_file)))
+  end
 end
