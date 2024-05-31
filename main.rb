@@ -30,8 +30,6 @@ class MagicStoryCompiler
     publish_date = articles.map { |a| Date.parse(a[:publish_date]) }.max
     book.add_date(publish_date.to_time)
 
-    images = {}
-
     book.ordered do
       copyright_page = Nokogiri::HTML::Builder.with(Nokogiri::HTML5::Document.new) do |doc|
         doc.html do
@@ -54,20 +52,6 @@ class MagicStoryCompiler
       book.add_item('text/copyright.html', content: StringIO.new(copyright_page))
       articles.each do |article|
         article_body = Nokogiri::HTML.fragment(article[:text])
-        image_tags = article_body.css("img")
-
-        image_tags.each do |img|
-          begin
-            f = URI.open(img["src"])
-          rescue 
-            next
-          end
-          if f
-            path = "image/#{img['src'].split('/').last}"
-            book.add_item(path, content: f)
-            img["src"] = "../#{path}"
-          end
-        end
 
         builder = Nokogiri::HTML::Builder.with(Nokogiri::HTML5::Document.new) do |doc|
           doc.html do
@@ -296,13 +280,43 @@ sets.each do |set|
   
   output_epub_file = File.join(output_folder, book_name)
   compiler.make_book(set: set, output_file: output_epub_file)
+  calibre_tools_path = "/Applications/calibre.app/Contents/MacOS"
+
+  # polish the book to embed all the images, remove unused css and update punctuation
+  polish_command = [
+    "#{calibre_tools_path}/ebook-polish", 
+    "--download-external-resources",
+    "--remove-unused-css",
+    "--smarten-punctuation",
+    "--verbose",
+    "\"#{output_epub_file}\"",
+    "\"#{output_epub_file}\""
+  ]
+
+  Kernel.system(polish_command.join(' '))
+
+  # compress the images after to also get the downloaded images
+  compress_images_command = [
+    "#{calibre_tools_path}/ebook-polish", 
+    "--compress-images",
+    "--verbose",
+    "\"#{output_epub_file}\"",
+    "\"#{output_epub_file}\""
+  ]
+  Kernel.system(compress_images_command.join(' '))
 
   formats.each do |format|
     unless format == 'epub'
       format_folder = File.join(output_folder, format)
       FileUtils.mkdir_p(format_folder)
       output_file_name = "#{File.basename(output_epub_file, ".*")}.#{format}"
-      Kernel.system("/Applications/calibre.app/Contents/MacOS/ebook-convert \"#{output_epub_file}\" \"#{File.join(format_folder, output_file_name)}\" #{'--output-profile tablet' if format == 'mobi'}")
+      convert_command = [
+        "#{calibre_tools_path}/ebook-convert",
+        "\"#{output_epub_file}\"",
+        "\"#{File.join(format_folder, output_file_name)}\"",
+        ('--output-profile tablet' if format == 'mobi')
+      ]
+      Kernel.system(convert_command.compact.join(' '))
     end
   end
 
