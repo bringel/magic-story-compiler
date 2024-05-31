@@ -17,3 +17,5 @@ gem "gepub", "~> 1.0"
 gem "byebug", "~> 11.1"
 
 gem "mini_magick", "~> 4.12"
+
+gem "faraday", "~> 2.9"

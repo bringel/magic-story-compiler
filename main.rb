@@ -11,6 +11,7 @@ require 'capybara/dsl'
 require 'loofah'
 require 'gepub'
 require 'mini_magick'
+require 'date'
 
 class MagicStoryCompiler
   include Capybara::DSL
@@ -18,8 +19,7 @@ class MagicStoryCompiler
   Capybara.default_driver = :selenium_chrome
   
   def make_book(set:, output_file:)
-    articles = get_all_set_story_articles(set_name: set["name"])
-
+    articles = get_all_set_story_articles(set: set)
     book = GEPUB::Book.new
 
     book.add_title("Magic: The Gathering - #{set["name"]}")
@@ -27,38 +27,46 @@ class MagicStoryCompiler
     book.add_item("assets/overrides.css", content: File.open(File.expand_path("./overrides.css", File.dirname(__FILE__))))
     articles.map { |a| a[:author ]}.uniq.each { |author| book.add_creator(author) }
 
+    publish_date = articles.map { |a| Date.parse(a[:publish_date]) }.max
+    book.add_date(publish_date.to_time)
 
     images = {}
 
     book.ordered do
-    copyright_page = Nokogiri::HTML::Builder.with(Nokogiri::HTML5::Document.new) do |doc|
-      doc.html do
-        doc.head do
-          doc.title("Copyright")
-          doc.link(rel: "stylesheet", href: "../assets/base.css")
-          doc.link(rel: "stylesheet", href: "../assets/overrides.css")
-        end
-        doc.body do
-          doc.div do
-            doc.text("This book is unofficial Fan Content permitted under the Fan Content Policy. Not approved/endorsed by Wizards.")
-            doc.br
-            doc.text("All text, images, and other portions of the materials used are property of Wizards of the Coast.")
-            doc.br
-            doc.text("©Wizards of the Coast LLC.")
+      copyright_page = Nokogiri::HTML::Builder.with(Nokogiri::HTML5::Document.new) do |doc|
+        doc.html do
+          doc.head do
+            doc.title("Copyright")
+            doc.link(rel: "stylesheet", href: "../assets/base.css")
+            doc.link(rel: "stylesheet", href: "../assets/overrides.css")
+          end
+          doc.body do
+            doc.div do
+              doc.text("This book is unofficial Fan Content permitted under the Fan Content Policy. Not approved/endorsed by Wizards.")
+              doc.br
+              doc.text("All text, images, and other portions of the materials used are property of Wizards of the Coast.")
+              doc.br
+              doc.text("©Wizards of the Coast LLC.")
+            end
           end
         end
-      end
-    end.to_html
-    book.add_item('text/copyright.html', content: StringIO.new(copyright_page))
+      end.to_html
+      book.add_item('text/copyright.html', content: StringIO.new(copyright_page))
       articles.each do |article|
         article_body = Nokogiri::HTML.fragment(article[:text])
         image_tags = article_body.css("img")
 
         image_tags.each do |img|
-          f = URI.open(img["src"])
-          path = "image/#{img['src'].split('/').last}"
-          images[path] = f
-          img["src"] = "../#{path}"
+          begin
+            f = URI.open(img["src"])
+          rescue 
+            next
+          end
+          if f
+            path = "image/#{img['src'].split('/').last}"
+            book.add_item(path, content: f)
+            img["src"] = "../#{path}"
+          end
         end
 
         builder = Nokogiri::HTML::Builder.with(Nokogiri::HTML5::Document.new) do |doc|
@@ -80,9 +88,6 @@ class MagicStoryCompiler
              toc_text(article[:title]).
              landmark(type: 'bodymatter', title: article[:title])
       end
-    end
-    images.each do |path, f|
-      book.add_item(path, content: f)
     end
 
 # going to use this to create a cover and then add another image on top 
@@ -129,10 +134,10 @@ class MagicStoryCompiler
     book.generate_epub(output_file)
   end
 
-  def get_all_set_story_articles(set_name:)
+  def get_all_set_story_articles(set:)
     visit("https://magic.wizards.com/en/story")
 
-    links = get_article_links(set_name: set_name)
+    links = set["article_links"]&.map { |h| h.transform_keys(&:to_sym) } || get_article_links(set_name: set["name"])
     links.map do |link|
       get_story_article(story_hash: link)
     end
@@ -151,6 +156,10 @@ class MagicStoryCompiler
     author = header.all("a").find { |e| e.text != 'Magic Story' }&.text || ""
 
     body_text = body['innerHTML']
+
+    # for some reason the wizards CMS thinks nbsp is a tag and not an entity, and this
+    # tag is thenremoved by the loofah scrubber
+    body_text.gsub!(/<nbsp>\. \. \.<\/nbsp>/, "&nbsp;...&nbsp;")
 
     # after we scrub out any unsafe tags, there can be empty paragraphs or horizontal rules with nothing above them
     # and this scrubber will remove them
