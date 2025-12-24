@@ -5,24 +5,26 @@ require 'optparse'
 require 'open-uri'
 require 'yaml'
 require 'fileutils'
-
+require 'active_support/inflector'
 require 'byebug'
 require 'capybara/dsl'
 require 'loofah'
 require 'gepub'
 require 'mini_magick'
 require 'date'
+require 'faraday'
 
 class MagicStoryCompiler
   include Capybara::DSL
 
   Capybara.default_driver = :selenium_chrome
   
-  def make_book(set:, output_file:)
+  def make_book(set_code:, output_file:)
+    set = set_data(set_code:)
     articles = get_all_set_story_articles(set: set)
     book = GEPUB::Book.new
 
-    book.add_title("Magic: The Gathering - #{set["name"]}")
+    book.add_title("Magic: The Gathering - #{set[:name]}")
     book.add_item("assets/base.css", content: File.open(File.expand_path("./ebook-css/css/base.css", File.dirname(__FILE__))))
     book.add_item("assets/overrides.css", content: File.open(File.expand_path("./overrides.css", File.dirname(__FILE__))))
     articles.map { |a| a[:author ]}.uniq.each { |author| book.add_creator(author) }
@@ -108,7 +110,7 @@ class MagicStoryCompiler
     # result.write(output_tf.path)
 
     # book.add_item('image/cover.jpeg', content: output_tf).cover_image
-    set_image = MiniMagick::Image.open(set["image_url"])
+    set_image = MiniMagick::Image.open(set[:image_url])
     set_image.resize('1600x2560')
     set_image.format('.jpeg')
     tf = Tempfile.new
@@ -121,20 +123,20 @@ class MagicStoryCompiler
   def get_all_set_story_articles(set:)
     visit("https://magic.wizards.com/en/story")
 
-    links = set["article_links"]&.map { |h| h.transform_keys(&:to_sym) } || get_article_links(set_name: set["name"])
+    links = set["article_links"]&.map { |h| h.transform_keys(&:to_sym) } || get_article_links(set_name: set[:name])
     links.map do |link|
       get_story_article(story_hash: link)
     end
   end
 
   def get_story_article(story_hash:)
+    puts "visiting #{story_hash[:url]}"
     visit(story_hash[:url])
 
-    title = story_hash[:title].split("|").last.strip
-    main_article = find("article")
-    header = main_article.find("header")
-    body = main_article.find("div.article-body")
-
+    category = story_hash[:category] == 'Magic Story' ? "" : "#{story_hash[:category]}: "
+    title = "#{category}#{story_hash[:title].split("|").last.strip}"
+    header = find("header")
+    body = find("div.article-body")
     publish_date = header.find("time").text
 
     author = header.all("a").find { |e| e.text != 'Magic Story' }&.text || ""
@@ -176,11 +178,26 @@ class MagicStoryCompiler
         link = el.find('a[aria-label="Read More"]')
 
         {
+          category: b.text.titleize,
           title: title,
           url: link['href']
         }
       end
     end
+  end
+
+  def set_data(set_code:)
+    conn = Faraday.new("https://api.scryfall.com") do |builder|
+      builder.response :json
+    end
+    res = conn.get("/sets/#{set_code}")
+    release_year = res.body["released_at"].split("-").first
+    name = res.body["name"]
+    {
+      code: set_code,
+      name: name,
+      image_url: "https://media.wizards.com/#{release_year}/wpn/marketing_materials/#{set_code}/#{set_code}_lgp_key_24x36_EN.pdf"
+    }
   end
 
   def find_story_switch_buttons()
@@ -205,11 +222,10 @@ class MagicStoryCompiler
   def find_set_element(set_name:)
     sets = find_set_slider
     years = find_year_slider
-
     years.all("span.swiper-slide", visible: false).each do |y|
       y.click
       begin
-        set = sets.find("div.swiper-slide", text: set_name, visible: false) 
+        set = sets.find("div.swiper-slide", text: /#{set_name}/, visible: false) 
       rescue Capybara::ElementNotFound
         next
       end
@@ -219,22 +235,22 @@ class MagicStoryCompiler
 
   def find_year_slider()
     scroll_to(find_story_archive)
-    has_selector?("section#story-arcive div.swiper-wrapper")     
-    sliders = all("section#story-archive div.swiper-wrapper")
+    has_selector?("section#arcive div.swiper-wrapper")     
+    sliders = all("section#archive div.swiper-wrapper")
   
     sliders.find { |s| s.all("span", text: 2023).length > 0 }
   end
 
   def find_set_slider()
     scroll_to(find_story_archive)
-    has_selector?("section#story-arcive div.swiper-wrapper")     
-    sliders = all("section#story-archive div.swiper-wrapper")
+    has_selector?("section#arcive div.swiper-wrapper")     
+    sliders = all("section#archive div.swiper-wrapper")
 
     sliders.reject { |s| s.all("span", text: 2023).length > 0 }.first
   end
 
   def find_story_archive
-    find("section#story-archive")
+    find("section#archive")
   end
 end
 
@@ -279,7 +295,7 @@ sets.each do |set|
   FileUtils.mkdir_p(output_folder)
   
   output_epub_file = File.join(output_folder, book_name)
-  compiler.make_book(set: set, output_file: output_epub_file)
+  compiler.make_book(set_code: set, output_file: output_epub_file)
   calibre_tools_path = "/Applications/calibre.app/Contents/MacOS"
 
   # polish the book to embed all the images, remove unused css and update punctuation
@@ -288,6 +304,7 @@ sets.each do |set|
     "--download-external-resources",
     "--remove-unused-css",
     "--smarten-punctuation",
+    "--embed-fonts",
     "--verbose",
     "\"#{output_epub_file}\"",
     "\"#{output_epub_file}\""

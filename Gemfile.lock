@@ -1,9 +1,23 @@
 GEM
   remote: https://rubygems.org/
   specs:
+    activesupport (7.2.2.2)
+      base64
+      benchmark (>= 0.3)
+      bigdecimal
+      concurrent-ruby (~> 1.0, >= 1.3.1)
+      connection_pool (>= 2.2.5)
+      drb
+      i18n (>= 1.6, < 2)
+      logger (>= 1.4.2)
+      minitest (>= 5.1)
+      securerandom (>= 0.3)
+      tzinfo (~> 2.0, >= 2.0.5)
     addressable (2.8.6)
       public_suffix (>= 2.0.2, < 6.0)
     base64 (0.2.0)
+    benchmark (0.5.0)
+    bigdecimal (3.3.1)
     byebug (11.1.3)
     capybara (3.39.2)
       addressable
@@ -14,7 +28,10 @@ GEM
       rack-test (>= 0.6.3)
       regexp_parser (>= 1.5, < 3.0)
       xpath (~> 3.2)
+    concurrent-ruby (1.3.5)
+    connection_pool (2.5.4)
     crass (1.0.6)
+    drb (2.2.3)
     faraday (2.9.0)
       faraday-net_http (>= 2.0, < 3.2)
     faraday-net_http (3.1.0)
@@ -22,12 +39,16 @@ GEM
     gepub (1.0.15)
       nokogiri (>= 1.8.2, < 2.0)
       rubyzip (> 1.1.1, < 2.4)
+    i18n (1.14.7)
+      concurrent-ruby (~> 1.0)
+    logger (1.7.0)
     loofah (2.22.0)
       crass (~> 1.0.2)
       nokogiri (>= 1.12.0)
     matrix (0.4.2)
     mini_magick (4.12.0)
     mini_mime (1.1.5)
+    minitest (5.26.0)
     net-http (0.4.1)
       uri
     nokogiri (1.16.0-x86_64-darwin)
@@ -40,11 +61,14 @@ GEM
     regexp_parser (2.9.0)
     rexml (3.2.6)
     rubyzip (2.3.2)
+    securerandom (0.4.1)
     selenium-webdriver (4.17.0)
       base64 (~> 0.2)
       rexml (~> 3.2, >= 3.2.5)
       rubyzip (>= 1.2.2, < 3.0)
       websocket (~> 1.0)
+    tzinfo (2.0.6)
+      concurrent-ruby (~> 1.0)
     uri (0.13.0)
     websocket (1.2.10)
     xpath (3.2.0)
@@ -52,8 +76,10 @@ GEM
 
 PLATFORMS
   x86_64-darwin-21
+  x86_64-darwin-22
 
 DEPENDENCIES
+  activesupport (~> 7.2)
   byebug (~> 11.1)
   capybara (~> 3.39)
   faraday (~> 2.9)

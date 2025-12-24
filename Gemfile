@@ -19,3 +19,5 @@ gem "byebug", "~> 11.1"
 gem "mini_magick", "~> 4.12"
 
 gem "faraday", "~> 2.9"
+
+gem "activesupport", "~> 7.2"
