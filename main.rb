@@ -5,7 +5,9 @@ require 'optparse'
 require 'open-uri'
 require 'yaml'
 require 'fileutils'
+require 'active_support'
 require 'active_support/inflector'
+require 'active_support/core_ext'
 require 'byebug'
 require 'capybara/dsl'
 require 'loofah'
@@ -13,15 +15,30 @@ require 'gepub'
 require 'mini_magick'
 require 'date'
 require 'faraday'
+require 'zip'
+require 'faraday/retry'
 
 class MagicStoryCompiler
   include Capybara::DSL
 
   Capybara.default_driver = :selenium_chrome
   
-  def make_book(set_code:, output_file:)
+  def make_book(set_code:, output_folder:)
     set = set_data(set_code:)
     articles = get_all_set_story_articles(set: set)
+    book_name = "Magic: The Gathering - #{set[:name]}.epub"
+    output_epub_file = File.join(output_folder, book_name)
+
+     unless story_text_changed?(set_code:, articles:, output_folder:)
+       epub_folder = File.join(output_folder, "epub")
+       filename = File.join(epub_folder, File.basename(output_epub_file))
+       return { filename: filename, existing_file: true }
+     end
+
+     digest_file_name = digest_file_name(output_folder:, set_code:)
+     FileUtils.mkdir_p(File.dirname(digest_file_name))
+     File.write(digest_file_name, story_text_hash(articles:))
+    
     book = GEPUB::Book.new
 
     book.add_title("Magic: The Gathering - #{set[:name]}")
@@ -117,7 +134,8 @@ class MagicStoryCompiler
     set_image.write(tf.path)
     book.add_item('image/cover.jpeg', content: tf).cover_image
 
-    book.generate_epub(output_file)
+    book.generate_epub(output_epub_file)
+    { filename: output_epub_file, existing_file: false }
   end
 
   def get_all_set_story_articles(set:)
@@ -193,11 +211,92 @@ class MagicStoryCompiler
     res = conn.get("/sets/#{set_code}")
     release_year = res.body["released_at"].split("-").first
     name = res.body["name"]
+    pdf_url = try_marketing_url_years(
+      url: "https://media.wizards.com/%{year}/wpn/marketing_materials/%{set_code_path}/%{set_code_file}_lgp_key_24x36_EN.pdf", 
+      set_code: set_code
+    )
+
+    image_url = unless pdf_url.blank?
+      pdf_url
+    else
+      zip_url = try_marketing_url_years(
+        url: "https://media.wizards.com/%{year}/wpn/marketing_materials/%{set_code_path}/%{set_code_file}_sma_key_en.zip", 
+        set_code: set_code
+      )
+      image_file = Tempfile.create
+      image_file.binmode
+      Tempfile.create do |f|
+        f.binmode
+        res = Faraday.get(zip_url)
+        f.write(res.body)
+        Zip::File.open(f.path) do |zip_file|
+          entry = zip_file.entries.find { |e| e.name.match?(/1080x1350/)}
+        
+          image_file.write(entry.get_input_stream.read)
+        end
+      end
+      image_file.path
+    end
+
     {
       code: set_code,
       name: name,
-      image_url: "https://media.wizards.com/#{release_year}/wpn/marketing_materials/#{set_code}/#{set_code}_lgp_key_24x36_EN.pdf"
+      image_url: image_url
     }
+  end
+
+  def story_text_hash(articles:)
+    all_article_text = articles.map { |a| a[:text] }.join("\n")
+    OpenSSL::Digest.hexdigest("SHA256", all_article_text)
+  end
+
+  def story_text_changed?(set_code:, articles:, output_folder:)
+    digest_file_name = digest_file_name(output_folder:, set_code:)
+
+    return true unless File.exist?(digest_file_name)
+
+    existing_digest = File.read(digest_file_name)
+    story_text_hash = story_text_hash(articles:)
+    existing_digest != story_text_hash
+  end
+
+  def digest_file_name(output_folder:, set_code:)
+    digest_folder = File.join(output_folder, "digests")
+    FileUtils.mkdir_p(digest_folder)
+    digest_file_name = File.join(digest_folder, set_code)
+  end
+
+  def try_marketing_url_years(url:, set_code:)
+    unless url.match?(/%{year}/)
+      raise ArgumentError "URL must contain the replacement string '%{year}'"
+    end
+    params = [
+      { set_code_path: set_code.downcase, set_code_file: set_code.downcase },
+      { set_code_path: set_code.upcase, set_code_file: set_code.downcase },
+      { set_code_path: set_code.downcase, set_code_file: set_code.upcase },
+      { set_code_path: set_code.upcase, set_code_file: set_code.upcase },
+    ]
+    current_year = Date.today.year
+    years = (2017..current_year).to_a.reverse
+    retry_options = {
+      max: 4,
+      interval: 0.05,
+      interval_randomness: 0.5,
+      backoff_factor: 2,
+      retry_statuses: [404]
+    }
+    connection = Faraday.new do |f|
+      f.request :retry, retry_options
+    end
+    params.each do |p|
+      years.each do |year|
+        year_url = url % p.merge({ year: year })
+        res = connection.head(year_url)
+        return year_url unless res.status == 404
+      end
+    end
+
+    return nil
   end
 
   def find_story_switch_buttons()
@@ -290,37 +389,39 @@ compiler = MagicStoryCompiler.new
 
 sets.each do |set|
   pp set
-  book_name = "Magic: The Gathering - #{set["name"]}.epub"
   output_folder = File.expand_path(options[:"output-folder"])
   FileUtils.mkdir_p(output_folder)
   
-  output_epub_file = File.join(output_folder, book_name)
-  compiler.make_book(set_code: set, output_file: output_epub_file)
+  output = compiler.make_book(set_code: set, output_folder: output_folder)
+  output_epub_file = output[:filename]
   calibre_tools_path = "/Applications/calibre.app/Contents/MacOS"
 
-  # polish the book to embed all the images, remove unused css and update punctuation
-  polish_command = [
-    "#{calibre_tools_path}/ebook-polish", 
-    "--download-external-resources",
-    "--remove-unused-css",
-    "--smarten-punctuation",
-    "--embed-fonts",
-    "--verbose",
-    "\"#{output_epub_file}\"",
-    "\"#{output_epub_file}\""
-  ]
+  # skip polishing commands if we are using a pre-existing file
+  unless output[:existing_file]
+    # polish the book to embed all the images, remove unused css and update punctuation
+    polish_command = [
+      "#{calibre_tools_path}/ebook-polish", 
+      "--download-external-resources",
+      "--remove-unused-css",
+      "--smarten-punctuation",
+      "--embed-fonts",
+      "--verbose",
+      "\"#{output_epub_file}\"",
+      "\"#{output_epub_file}\""
+    ]
 
-  Kernel.system(polish_command.join(' '))
+    Kernel.system(polish_command.join(' '))
 
-  # compress the images after to also get the downloaded images
-  compress_images_command = [
-    "#{calibre_tools_path}/ebook-polish", 
-    "--compress-images",
-    "--verbose",
-    "\"#{output_epub_file}\"",
-    "\"#{output_epub_file}\""
-  ]
-  Kernel.system(compress_images_command.join(' '))
+    # compress the images after to also get the downloaded images
+    compress_images_command = [
+      "#{calibre_tools_path}/ebook-polish", 
+      "--compress-images",
+      "--verbose",
+      "\"#{output_epub_file}\"",
+      "\"#{output_epub_file}\""
+    ]
+    Kernel.system(compress_images_command.join(' '))
+  end
 
   formats.each do |format|
     unless format == 'epub'
@@ -337,7 +438,7 @@ sets.each do |set|
     end
   end
 
-  if formats.include?("epub")
+  if formats.include?("epub") && !output[:existing_file]
     epub_folder = File.join(output_folder, "epub")
     FileUtils.mkdir_p(epub_folder)
     FileUtils.mv(output_epub_file, File.join(epub_folder, File.basename(output_epub_file)))

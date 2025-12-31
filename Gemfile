@@ -21,3 +21,7 @@ gem "mini_magick", "~> 4.12"
 gem "faraday", "~> 2.9"
 
 gem "activesupport", "~> 7.2"
+
+gem "rubyzip", "~> 2.3"
+
+gem "faraday-retry", "~> 2.4"
